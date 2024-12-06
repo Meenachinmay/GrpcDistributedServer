@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package org.polarmeet.proto;
+
+option java_multiple_files = true;
+option java_package = "org.polarmeet.grpcdistributedserver.proto";
+option java_outer_classname = "StreamingProto";
+
+service StreamingService {
+  rpc StreamData (StreamRequest) returns (stream StreamResponse) {}
+}
+
+message StreamRequest {
+  string client_id = 1;
+}
+
+message StreamResponse {
+  int32 stream_id = 1;
+  string data = 2;
+  int64 timestamp = 3;
+}
