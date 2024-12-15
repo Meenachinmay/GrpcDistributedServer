@@ -1,5 +1,18 @@
 version: '3.8'
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"  # Spring Boot default port
+      - "9090:9090"  # Typical gRPC port
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+    depends_on:
+      - redis
+
   redis:
     image: redis:latest
     ports:
