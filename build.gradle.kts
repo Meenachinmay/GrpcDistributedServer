@@ -34,10 +34,8 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
+    // redis
     implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-    implementation("io.projectreactor.kotlin:reactor-kotlin-extensions")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
     // grpc
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")

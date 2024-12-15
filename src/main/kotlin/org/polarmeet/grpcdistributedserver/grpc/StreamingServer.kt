@@ -54,6 +54,7 @@ class StreamingServer(private val messageBroker: MessageBroker) {
             .maxInboundMessageSize(1024 * 1024)
             .maxInboundMetadataSize(1024 * 64)
             .flowControlWindow(1024 * 1024 * 8)
+
             // Add these new configurations
             .permitKeepAliveTime(20, TimeUnit.SECONDS)  // Allow keepalive after 20 seconds
             .permitKeepAliveWithoutCalls(true)  // Allow keepalive even when no RPCs are in flight
