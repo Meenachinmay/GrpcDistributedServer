@@ -7,3 +7,4 @@ build
 *.ipr
 .gitignore
 README.md
+GrpcDistributedServer-0.0.1-SNAPSHOT.jar

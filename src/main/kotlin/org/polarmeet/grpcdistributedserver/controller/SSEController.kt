@@ -15,10 +15,7 @@ class SSEController(private val messageBroker: MessageBroker) {
     fun streamMessages(): Flux<String> {
         return messageBroker.messageFlow
             .map { message ->
-                """
-                data: $message
-                
-                """
+                "data: $message\n\n"  // Simple string with explicit newlines
             }
             .asFlux()
     }

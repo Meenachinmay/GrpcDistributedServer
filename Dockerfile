@@ -1,29 +1,13 @@
-# Start with a base image containing Java runtime
-FROM eclipse-temurin:21-jdk as builder
+# Use OpenJDK 17 for running the application
+FROM openjdk:21-slim
 
-# Set the working directory in the container
+# Set the working directory
 WORKDIR /app
 
-# Copy the build files
-COPY build.gradle.kts settings.gradle.kts gradlew ./
-COPY gradle ./gradle
+COPY /jars/*.jar ./app.jar
 
-# Copy the source code
-COPY src ./src
+# Expose the port the app runs on
+EXPOSE 8080 9090
 
-# Grant execute permission for gradlew
-RUN chmod +x ./gradlew
-
-# Build the application
-RUN ./gradlew bootJar --no-daemon
-
-# Create the runtime container
-FROM eclipse-temurin:21-jre-jammy
-
-WORKDIR /app
-
-# Copy the built jar file from the builder stage
-COPY --from=builder /app/build/libs/*.jar app.jar
-
-# Set the entrypoint to run the application
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Run the jar file
+ENTRYPOINT ["java","-jar","./app.jar"]

@@ -102,22 +102,25 @@ class StreamingServer(private val messageBroker: MessageBroker) {
         }
 
         private suspend fun processMessagesForRedis() {
-            while (isActive) {
-                try {
-                    // Process messages in batches for efficiency
-                    val messageBatch = mutableListOf<StreamMessage>()
-                    messageBuffer.drainTo(messageBatch, 100)
+            // Using coroutineScope builder to get access to the correct isActive property
+            coroutineScope {
+                while (this.isActive) {  // 'this' refers to the coroutine scope
+                    try {
+                        // Process messages in batches for efficiency
+                        val messageBatch = mutableListOf<StreamMessage>()
+                        messageBuffer.drainTo(messageBatch, 100)
 
-                    if (messageBatch.isNotEmpty()) {
-                        messageBatch.forEach { message ->
-                            messageBroker.publishMessage(message.data)
+                        if (messageBatch.isNotEmpty()) {
+                            messageBatch.forEach { message ->
+                                messageBroker.publishMessage(message.data)
+                            }
+                        } else {
+                            delay(10) // Prevent CPU spinning
                         }
-                    } else {
-                        delay(10) // Prevent CPU spinning
+                    } catch (e: Exception) {
+                        println("Redis publishing error: ${e.message}")
+                        delay(100)
                     }
-                } catch (e: Exception) {
-                    println("Redis publishing error: ${e.message}")
-                    delay(100)
                 }
             }
         }
