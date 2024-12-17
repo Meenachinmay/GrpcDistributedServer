@@ -13,18 +13,18 @@ import org.polarmeet.grpcdistributedserver.model.StreamMessage
 import org.polarmeet.grpcdistributedserver.proto.StreamRequest
 import org.polarmeet.grpcdistributedserver.proto.StreamResponse
 import org.polarmeet.grpcdistributedserver.proto.StreamingServiceGrpc
+import org.polarmeet.grpcdistributedserver.service.MessageBroker
 import java.util.concurrent.*
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.seconds
 
-class StreamingServer {
+class StreamingServer(private val messageBroker: MessageBroker) {
     private val server: Server
     private val activeStreams = AtomicInteger(0)
     private val totalStreamsCreated = AtomicInteger(0)
     private val streamsSinceLastReport = AtomicInteger(0)
 
-    // Virtual thread executor for better scalability
+    // We use virtual threads for better scalability
     private val serverDispatcher = Executors.newVirtualThreadPerTaskExecutor().asCoroutineDispatcher()
     private val streamScope = CoroutineScope(serverDispatcher + SupervisorJob())
 
@@ -33,14 +33,14 @@ class StreamingServer {
         private const val MAX_CONCURRENT_STREAMS = 100000
         private const val WORKER_THREADS = 128
         private const val MONITORING_INTERVAL_SECONDS = 5L
-        private const val QUEUE_CAPACITY = 1000
-        private const val QUEUE_TIMEOUT_MS = 100L
     }
 
     init {
+        // Configure server with Netty for high-performance networking
         val bossGroup: EventLoopGroup = NioEventLoopGroup(4)
         val workerGroup: EventLoopGroup = NioEventLoopGroup(WORKER_THREADS)
 
+        // Start monitoring coroutine
         streamScope.launch {
             monitorStreams()
         }
@@ -54,7 +54,13 @@ class StreamingServer {
             .maxInboundMessageSize(1024 * 1024)
             .maxInboundMetadataSize(1024 * 64)
             .flowControlWindow(1024 * 1024 * 8)
-            .addService(StreamingServiceImpl(streamScope, activeStreams, totalStreamsCreated, streamsSinceLastReport))
+
+            // Add these new configurations
+            .permitKeepAliveTime(20, TimeUnit.SECONDS)  // Allow keepalive after 20 seconds
+            .permitKeepAliveWithoutCalls(true)  // Allow keepalive even when no RPCs are in flight
+            .keepAliveTime(30, TimeUnit.SECONDS)  // Server keepalive time
+            .keepAliveTimeout(10, TimeUnit.SECONDS)  // Server keepalive timeout
+            .addService(StreamingServiceImpl(streamScope, activeStreams, totalStreamsCreated, streamsSinceLastReport, messageBroker))
 
         server = builder.build()
     }
@@ -82,97 +88,105 @@ class StreamingServer {
         private val scope: CoroutineScope,
         private val activeStreams: AtomicInteger,
         private val totalStreamsCreated: AtomicInteger,
-        private val streamsSinceLastReport: AtomicInteger
+        private val streamsSinceLastReport: AtomicInteger,
+        private val messageBroker: MessageBroker
     ) : StreamingServiceGrpc.StreamingServiceImplBase() {
 
-        // Using ArrayBlockingQueue instead of Channel for better performance
         private val messageBuffer = ArrayBlockingQueue<StreamMessage>(QUEUE_CAPACITY)
 
         init {
-            // Message producer coroutine
+            // Start message processing coroutine
             scope.launch(Dispatchers.Default) {
-                while (isActive) {
+                processMessagesForRedis()
+            }
+        }
+
+        private suspend fun processMessagesForRedis() {
+            // Using coroutineScope builder to get access to the correct isActive property
+            coroutineScope {
+                while (this.isActive) {  // 'this' refers to the coroutine scope
                     try {
-                        val message = StreamMessage("Sample data ${System.currentTimeMillis()}")
-                        messageBuffer.offer(message, QUEUE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                        delay(100) // Control message production rate
+                        // Process messages in batches for efficiency
+                        val messageBatch = mutableListOf<StreamMessage>()
+                        messageBuffer.drainTo(messageBatch, 100)
+
+                        if (messageBatch.isNotEmpty()) {
+                            messageBatch.forEach { message ->
+                                messageBroker.publishMessage(message.data)
+                            }
+                        } else {
+                            delay(10) // Prevent CPU spinning
+                        }
                     } catch (e: Exception) {
-                        println("Message production error: ${e.message}")
+                        println("Redis publishing error: ${e.message}")
+                        delay(100)
                     }
                 }
             }
         }
 
         override fun streamData(
-            request: StreamRequest,
             responseObserver: StreamObserver<StreamResponse>
-        ) {
+        ): StreamObserver<StreamRequest> {
+            // Enforce connection limits
             if (activeStreams.get() >= MAX_CONCURRENT_STREAMS) {
                 println("❌ Connection rejected: Max streams (${MAX_CONCURRENT_STREAMS}) reached")
-                responseObserver.onError(
-                    Status.RESOURCE_EXHAUSTED
-                        .withDescription("Max streams reached")
-                        .asException()
-                )
-                return
+                throw Status.RESOURCE_EXHAUSTED
+                    .withDescription("Max streams reached")
+                    .asRuntimeException()
             }
 
             val streamId = totalStreamsCreated.incrementAndGet()
             streamsSinceLastReport.incrementAndGet()
             val currentActive = activeStreams.incrementAndGet()
+            var messageCount = 0
 
             println("✅ New stream connected (ID: $streamId, Active: $currentActive)")
 
-            scope.launch {
-                try {
-                    handleStream(streamId, responseObserver)
-                } finally {
+            return object : StreamObserver<StreamRequest> {
+                override fun onNext(request: StreamRequest) {
+                    messageCount++
+                    // Convert gRPC request to domain message
+                    val message = StreamMessage(
+                        data = request.data,
+                        timestamp = request.timestamp
+                    )
+
+                    // Add to processing queue with backpressure
+                    if (!messageBuffer.offer(message, 100, TimeUnit.MILLISECONDS)) {
+                        println("⚠️ Buffer full for stream $streamId - message dropped")
+                    }
+                }
+
+                override fun onError(error: Throwable) {
+                    println("❌ Error in stream $streamId: ${error.message}")
+                    cleanupStream()
+                }
+
+                override fun onCompleted() {
+                    // Send final success response
+                    val response = StreamResponse.newBuilder()
+                        .setSuccess(true)
+                        .setMessage("Stream processed successfully")
+                        .setTotalMessagesProcessed(messageCount)
+                        .build()
+
+                    responseObserver.onNext(response)
+                    responseObserver.onCompleted()
+
+                    println("✅ Stream $streamId completed. Processed $messageCount messages")
+                    cleanupStream()
+                }
+
+                private fun cleanupStream() {
                     val remainingStreams = activeStreams.decrementAndGet()
                     println("❎ Stream disconnected (ID: $streamId, Remaining: $remainingStreams)")
                 }
             }
         }
 
-        private suspend fun handleStream(
-            streamId: Int,
-            responseObserver: StreamObserver<StreamResponse>
-        ) {
-            // Queue for individual stream messages
-            val streamQueue = ArrayBlockingQueue<StreamMessage>(QUEUE_CAPACITY)
-
-            try {
-                // Launch message forwarding coroutine
-                scope.launch {
-                    while (isActive) {
-                        val message = messageBuffer.poll(QUEUE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                        if (message != null) {
-                            streamQueue.offer(message, QUEUE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                        }
-                    }
-                }
-
-                // Process messages from the stream queue
-                while (isActive) {
-                    val message = streamQueue.poll(QUEUE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                    if (message != null) {
-                        val response = StreamResponse.newBuilder()
-                            .setStreamId(streamId)
-                            .setData(message.data)
-                            .build()
-
-                        withContext(Dispatchers.IO) {
-                            responseObserver.onNext(response)
-                        }
-                    }
-                }
-            } catch (e: CancellationException) {
-                println("⚠️ Stream $streamId cancelled")
-            } catch (e: Exception) {
-                println("❌ Error in stream $streamId: ${e.message}")
-                responseObserver.onError(e)
-            } finally {
-                responseObserver.onCompleted()
-            }
+        companion object {
+            private const val QUEUE_CAPACITY = 100000
         }
     }
 
@@ -185,5 +199,4 @@ class StreamingServer {
             |Monitoring interval: ${MONITORING_INTERVAL_SECONDS}s
         """.trimMargin())
     }
-
 }

@@ -1,5 +1,3 @@
-import java.util.random.RandomGeneratorFactory.all
-
 plugins {
     kotlin("jvm") version "1.9.25"
     kotlin("plugin.spring") version "1.9.25"
@@ -14,7 +12,7 @@ version = "0.0.1-SNAPSHOT"
 // Define versions in one place for better maintenance
 val grpcVersion = "1.60.0"
 val grpcKotlinVersion = "1.4.1"
-val protobufVersion = "3.25.1"
+val protobufVersion = "4.28.2"
 val coroutinesVersion = "1.7.3"
 
 java {
@@ -34,6 +32,9 @@ dependencies {
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-reactor")
 
+    // redis
+    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
+
     // grpc
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
     implementation("io.grpc:grpc-protobuf:$grpcVersion")
@@ -42,10 +43,22 @@ dependencies {
     implementation("com.google.protobuf:protobuf-kotlin:$protobufVersion")
     implementation("javax.annotation:javax.annotation-api:1.3.2")
 
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("io.projectreactor:reactor-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+
+    // Testing dependencies
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("io.projectreactor:reactor-test")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.testcontainers:testcontainers:1.19.3")
+    testImplementation("io.grpc:grpc-testing:1.60.0")
+    testImplementation(platform("org.testcontainers:testcontainers-bom:1.19.3"))
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers")
+    testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("io.reactivex.rxjava2:rxjava:2.2.21")
 }
 
 protobuf {
