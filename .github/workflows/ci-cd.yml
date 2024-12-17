@@ -1,0 +1,64 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    env:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+
+    services:
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build with Gradle
+        run: ./gradlew build
+
+      - name: Create jars directory
+        run: mkdir -p jars
+
+      - name: Copy JAR to jars directory
+        run: cp build/libs/*.jar jars/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: docker build -t grpc-server .
+
+      - name: Test Docker Compose
+        run: |
+          docker-compose up -d
+          sleep 30  # Give services time to start
+          docker-compose ps
+          docker-compose logs
+          docker-compose down
+
+    # Optional: Add steps for deployment if the PR is merged
+    # You might want to add conditions based on PR status
