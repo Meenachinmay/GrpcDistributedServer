@@ -60,7 +60,7 @@ jobs:
 
       - name: Test Docker Compose
         run: |
-          docker-compose up -d
+          docker compose up -d
           sleep 30  # Give services time to start
           docker-compose ps
           docker-compose logs
