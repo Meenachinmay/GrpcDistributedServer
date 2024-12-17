@@ -47,13 +47,10 @@ jobs:
       - name: Build Docker image
         run: docker build -t grpc-server .
 
-      - name: Test Docker Compose
+      - name: Install Docker Compose V2
         run: |
-          docker compose up -d
-          sleep 30  # Give services time to start
-          docker-compose ps
-          docker-compose logs
-          docker-compose down
+          sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose 
 
     # Optional: Add steps for deployment if the PR is merged
     # You might want to add conditions based on PR status
